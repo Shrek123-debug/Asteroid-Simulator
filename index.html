@@ -1,0 +1,1001 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Asteroid Defender — Game-style Impact Simulator</title>
+<style>
+  :root{
+    --bg1:#071028; --bg2:#0b1730; --panel:#0f2542; --accent:#ffe55c; --muted:#9fc9ff;
+    --mono:"Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  }
+  *{box-sizing:border-box; font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;}
+  html,body{height:100%; margin:0; background:linear-gradient(180deg,var(--bg1),var(--bg2)); color:#eef8ff;}
+  .wrap{max-width:1200px;margin:18px auto;padding:14px;display:grid;grid-template-columns:360px 1fr;gap:16px;align-items:start}
+  .panel{background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.02)); border-radius:12px; padding:14px; box-shadow:0 10px 40px rgba(0,0,0,0.6)}
+  .title{display:flex;align-items:center;justify-content:space-between}
+  h1{font-size:20px;margin:0}
+  .subtitle{font-size:12px;color:var(--muted)}
+  .section{margin-top:12px;padding:10px;border-radius:10px;background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);border:1px solid rgba(255,255,255,0.02)}
+  label{font-size:13px;color:#dff6ff;margin-bottom:6px;display:block}
+  input,textarea,select{width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:#e8fbff;font-family:var(--mono);font-size:13px}
+  textarea{min-height:90px}
+  .kv{min-width:86px;text-align:right;font-family:var(--mono)}
+  button{cursor:pointer;border:0;padding:9px 12px;border-radius:10px;font-weight:700}
+  .btn{background:linear-gradient(90deg,var(--accent),#ffd58a);color:#001}
+  .btn.alt{background:linear-gradient(90deg,#8ef2ff,#7ac1ff);color:#012}
+  .btn.warn{background:linear-gradient(90deg,#ff765c,#ff9a84);color:#200}
+  .muted{color:var(--muted);font-size:12px}
+  .small{font-size:12px;color:#bfefff}
+  .readouts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .stat{background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.02));padding:8px;border-radius:8px;min-width:128px;border:1px solid rgba(255,255,255,0.02)}
+  .stage{min-height:760px;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:12px;position:relative}
+  .arena{height:420px;border-radius:10px;background:linear-gradient(180deg,#020417,#001022);border:1px solid rgba(255,255,255,0.03);position:relative;overflow:hidden}
+  .earth{position:absolute;right:38px;bottom:18px;width:160px;height:160px;border-radius:50%;background:radial-gradient(circle at 35% 35%, #8ad0ff 0%, #1270a6 30%, #06243e 100%);border:3px solid rgba(255,255,255,0.03)}
+  .asteroid{position:absolute;left:18px;top:210px;width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#bdbdbd,#8b8b8b);box-shadow:0 8px 20px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;user-select:none;transition:transform 0.7s cubic-bezier(.16,.9,.2,1), opacity 0.6s;}
+  .asteroid:after{content:'';position:absolute;width:80%;height:80%;border-radius:50%;background:radial-gradient(circle at 30% 25%, rgba(255,255,255,0.08), transparent 30%) ;}
+  .trail{position:absolute;left:18px;top:210px;width:6px;height:6px;border-radius:50%;background:linear-gradient(90deg,#fff1a8,#ff8a4e);filter:blur(6px);opacity:0.9;pointer-events:none}
+  .impactFx{position:absolute;width:220px;height:220px;border-radius:50%;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;opacity:0}
+  .impactFx.explode{animation:impactPop 900ms ease-out forwards}
+  @keyframes impactPop{0%{transform:translate(-50%,-50%) scale(0.2);opacity:0.95}30%{transform:translate(-50%,-50%) scale(1.6);opacity:1}100%{transform:translate(-50%,-50%) scale(3.6);opacity:0}}
+  #particles{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+  /* globe */
+  .miniMap{display:flex;gap:8px;align-items:center}
+  .globeWrap{width:280px;height:280px;border-radius:50%;overflow:hidden;position:relative}
+  #globeCanvas{width:100%;height:100%;border-radius:50%;display:block}
+  .crater{position:absolute;border-radius:50%;background:rgba(30,0,0,0.9);box-shadow:inset 0 -12px 24px rgba(0,0,0,0.6);transform:translate(-50%,-50%)}
+  /* SOS */
+  #sosBtn{position:absolute;right:18px;top:12px;z-index:50;padding:10px 14px;border-radius:10px;font-weight:800}
+  .flash{animation:flashSOS 1s linear infinite}
+  @keyframes flashSOS{0%{box-shadow:0 0 6px rgba(255,0,0,0.2)}50%{box-shadow:0 0 18px rgba(255,0,0,0.6)}100%{box-shadow:0 0 6px rgba(255,0,0,0.2)}}
+  .conseqBox{margin-top:8px;background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent);padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.02)}
+  /* time scale */
+  .timeScaleWrap{position:absolute;left:50%;transform:translateX(-50%);top:10px;z-index:50;display:flex;gap:10px;align-items:center}
+  /* responsive */
+  @media(max-width:980px){.wrap{grid-template-columns:1fr;padding:12px}.arena{height:360px}.earth{width:120px;height:120px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- LEFT PANEL -->
+  <div class="panel">
+    <div class="title">
+      <div>
+        <h1>Asteroid Defender</h1>
+        <div class="subtitle">Game-style impact simulator — save the world!</div>
+      </div>
+      <div><button class="btn alt" id="helpBtn">Help</button></div>
+    </div>
+
+    <div class="section">
+      <label>ASTEROID SELECT (Load 50 real NEOs)</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="asteroidSelect" style="flex:1"><option value="">— none —</option></select>
+        <button class="btn alt" id="loadNeosBtn">Load 50</button>
+      </div>
+      <div class="muted" style="margin-top:8px">Uses NASA NEO browse endpoint. Replace <code>DEMO_KEY</code> in script with your API key for reliable results.</div>
+    </div>
+
+    <div class="section">
+      <label>Asteroid & Game Inputs</label>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">
+          <label>Name</label>
+          <input id="name" type="text" placeholder="(from NEO or custom)">
+        </div>
+        <div style="width:110px">
+          <label>Type</label>
+          <select id="type">
+            <option value="rock">Rock</option>
+            <option value="metal">Metal</option>
+            <option value="icy">Icy</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <div style="flex:1">
+          <label>Diameter (km)</label>
+          <input id="diam" type="number" step="0.0001" min="0" value="0.02">
+        </div>
+        <div style="width:120px">
+          <label>Density (kg/m³)</label>
+          <input id="dens" type="number" value="3000" min="100">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+        <div style="flex:1">
+          <label>Speed (km/s)</label>
+          <input id="spd" type="range" min="1" max="80" value="12">
+        </div>
+        <div class="kv" id="spdVal">12 km/s</div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+        <div style="flex:1">
+          <label>Angle (°) — arrow keys also</label>
+          <input id="ang" type="range" min="-45" max="45" value="0">
+        </div>
+        <div class="kv" id="angVal">0°</div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn" id="startBtn">Start</button>
+        <button class="btn alt" id="pauseBtn">Pause</button>
+        <button class="btn warn" id="resetBtn">Reset</button>
+      </div>
+
+      <div class="readouts">
+        <div class="stat"><strong id="massStat">—</strong><span>Mass (tons)</span></div>
+        <div class="stat"><strong id="energyStat">—</strong><span>Energy (J)</span></div>
+        <div class="stat"><strong id="mtStat">—</strong><span>Megatons TNT</span></div>
+        <div class="stat"><strong id="craterStat">—</strong><span>Crater radius (m)</span></div>
+        <div class="stat"><strong id="magStat">—</strong><span>Est. seismic mag</span></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <label>Impact Map</label>
+      <div class="miniMap">
+        <div class="globeWrap" style="position:relative;">
+          <canvas id="globeCanvas" title="Click to drop meteor"></canvas>
+          <!-- Crater overlays will be absolutely positioned here -->
+          <div id="craterOverlay" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;"></div>
+          <div id="fallingAsteroids"></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn alt" id="clearMap">Clear Map</button>
+        <div class="small" style="margin-left:auto">Click globe to drop a meteor & see crater</div>
+      </div>
+    </div>
+
+    <div style="margin-top:auto;text-align:center;color:#bfefff;font-size:13px">
+      <div>Asteroid Defender — copy-paste & run</div>
+      <div class="small">Replace <code>DEMO_KEY</code> with your NASA API key for live data.</div>
+    </div>
+  </div>
+
+  <!-- RIGHT STAGE -->
+  <div class="stage panel">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div><strong id="gameScore">Score: 0</strong><div class="small" id="lives">Lives: 3</div></div>
+      <div><button class="btn alt" id="pauseSoundBtn">🔈</button></div>
+    </div>
+
+    <!-- Time-scale slider (top-center) -->
+    <div class="timeScaleWrap">
+      <label class="small" style="margin-right:6px">Speed</label>
+      <input id="timeScale" type="range" min="50" max="300" step="10" value="100" />
+      <div class="small kv" id="timeScaleVal">1.00×</div>
+    </div>
+
+    <!-- SOS button top-right -->
+    <button class="btn warn flash" id="sosBtn" style="right:18px;top:10px">🚨 SOS</button>
+
+    <div class="arena" id="arena">
+      <canvas id="particles"></canvas>
+      <div class="asteroid" id="asteroid" draggable="false" title="Asteroid"></div>
+      <div class="trail" id="trail"></div>
+      <div class="impactFx" id="impactFx"></div>
+      <div class="earth" id="earth" aria-hidden="true"></div>
+    </div>
+
+    <!-- Mitigation buttons moved HERE (below arena) -->
+    <div class="section" style="margin-top:6px">
+      <label>SOS & Mitigation</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button class="btn" id="kineticBtn">Kinetic Impactor</button>
+        <button class="btn" id="gravityBtn">Gravity Tractor</button>
+        <button class="btn" id="laserBtn">Laser Ablation</button>
+        <button class="btn warn" id="nukeBtn">Nuclear</button>
+      </div>
+      <div class="muted" style="margin-top:8px">Mitigations affect speed/mass/trajectory. Use them before impact for best effect.</div>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-top:8px">
+      <div class="stat" style="flex:1"><strong id="status">Idle</strong><span class="small" id="statusSub">Prepare your defenses!</span></div>
+      <div class="stat" style="width:300px">
+        <strong id="summary">No sim</strong><span class="small" id="summarySub">Awaiting input</span>
+        <div class="conseqBox" style="margin-top:8px">
+          <div style="font-weight:700;margin-bottom:6px">Last impact consequences</div>
+          <div id="conseqContent" class="small">No impacts yet.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- modal placeholder -->
+<div id="modalRoot" style="display:none"></div>
+
+<script>
+/* ============================
+   Asteroid Defender — Upgraded
+   - Mitigations below arena
+   - Kinetic: -10% speed + +10° angle
+   - Gravity: -15% speed over 5s
+   - Laser: -20% mass
+   - Nuke: -60% mass + fragments effect
+   - SOS: top-right flashing, plays siren, slows time 50% for 6s
+   - Time-scale slider (0.5x — 3.0x)
+   - 3D-style rotating globe with fake continents (orthographic projection)
+   - Load 50 NEOs from NASA NEO browse
+   - Consequences: Energy (J), Mt, seismic mag, tsunami (if ocean), env summary, deaths, extinction-if-unrepaired
+   ============================ */
+
+/* ----- Helpers ----- */
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const expSig = (n,s=3)=>Number(n).toExponential(s-1);
+const devRatio = window.devicePixelRatio || 1;
+function deg2rad(d){ return d * Math.PI/180; }
+function rad2deg(r){ return r * 180/Math.PI; }
+
+/* ----- DOM refs ----- */
+const asteroidSelect = $('asteroidSelect'), loadNeosBtn = $('loadNeosBtn');
+const nameInput = $('name'), diam = $('diam'), dens = $('dens'), spd = $('spd'), ang = $('ang');
+const spdVal = $('spdVal'), angVal = $('angVal');
+const startBtn = $('startBtn'), pauseBtn = $('pauseBtn'), resetBtn = $('resetBtn');
+const kineticBtn = $('kineticBtn'), gravityBtn = $('gravityBtn'), laserBtn = $('laserBtn'), nukeBtn = $('nukeBtn');
+const globeCanvas = $('globeCanvas'), clearMap = $('clearMap'), load50Btn = loadNeosBtn;
+const massStat = $('massStat'), energyStat = $('energyStat'), mtStat = $('mtStat'), craterStat = $('craterStat'), magStat = $('magStat');
+const arena = $('arena'), asteroidEl = $('asteroid'), trail = $('trail'), earth = $('earth'), impactFx = $('impactFx');
+const particlesCanvas = $('particles'), ctx = particlesCanvas.getContext('2d');
+const statusEl = $('status'), statusSub = $('statusSub'), summary = $('summary'), summarySub = $('summarySub');
+const scoreEl = $('gameScore'), livesEl = $('lives'), pauseSoundBtn = $('pauseSoundBtn'), modalRoot = $('modalRoot');
+const conseqBox = $('conseqContent'), sosBtn = $('sosBtn');
+const timeScaleInput = $('timeScale'), timeScaleVal = $('timeScaleVal');
+const craterOverlay = $('craterOverlay');
+const fallingAsteroids = document.getElementById('fallingAsteroids');
+
+/* ----- Globe mask (offscreen) ----- */
+const maskCanvas = document.createElement('canvas');
+const maskCtx = maskCanvas.getContext('2d');
+
+/* ----- Audio setup ----- */
+let audioOn = true;
+pauseSoundBtn.addEventListener('click', ()=>{ audioOn = !audioOn; pauseSoundBtn.textContent = audioOn ? '🔈' : '🔇'; });
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function sfxBoom(intensity=1){
+  if(!audioOn) return;
+  const now = audioCtx.currentTime;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type = 'sawtooth'; o.frequency.value = 80 * Math.max(0.5, intensity);
+  g.gain.value = 0; g.gain.linearRampToValueAtTime(0.6*intensity, now + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(now); o.stop(now + 1.2);
+}
+function sfxBeep(freq=600, dur=0.1){
+  if(!audioOn) return;
+  const now = audioCtx.currentTime;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.frequency.value = freq; g.gain.value = 0;
+  o.connect(g); g.connect(audioCtx.destination);
+  g.gain.linearRampToValueAtTime(0.2, now);
+  g.gain.linearRampToValueAtTime(0.001, now + dur);
+  o.start(now); o.stop(now + dur + 0.02);
+}
+function playSiren(duration=6000){
+  if(!audioOn) return;
+  const now = audioCtx.currentTime;
+  const o1 = audioCtx.createOscillator(), o2 = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o1.type = 'sine'; o2.type = 'sine'; o1.frequency.value = 500; o2.frequency.value = 300;
+  g.gain.value = 0;
+  o1.connect(g); o2.connect(g); g.connect(audioCtx.destination);
+  g.gain.linearRampToValueAtTime(0.15, now + 0.01);
+  // sweep frequencies
+  o1.frequency.setValueAtTime(500, now); o1.frequency.linearRampToValueAtTime(1200, now + duration/1000/2);
+  o2.frequency.setValueAtTime(300, now); o2.frequency.linearRampToValueAtTime(700, now + duration/1000/2);
+  o1.start(now); o2.start(now);
+  setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5); o1.stop(audioCtx.currentTime + 0.6); o2.stop(audioCtx.currentTime + 0.6); }, duration);
+}
+
+/* ----- Particle system ----- */
+let particles = [];
+function spawnParticles(x,y,color,count=50,power=6){
+  const scale = timeScale();
+  for(let i=0;i<count;i++){
+    const a = Math.random()*Math.PI*2;
+    const s = Math.random()*power*scale;
+    particles.push({
+      x,y,
+      vx:Math.cos(a)*s, vy:Math.sin(a)*s,
+      life:60+Math.random()*60, size:2+Math.random()*4,
+      color: color || `hsl(${Math.random()*40},80%,60%)`
+    });
+  }
+}
+function updateParticles(){
+  const w = particlesCanvas.clientWidth, h = particlesCanvas.clientHeight;
+  if(particlesCanvas.width !== w*devRatio || particlesCanvas.height !== h*devRatio){
+    particlesCanvas.width = w*devRatio; particlesCanvas.height = h*devRatio;
+    ctx.setTransform(devRatio,0,0,devRatio,0,0);
+  }
+  ctx.clearRect(0,0,particlesCanvas.width,particlesCanvas.height);
+  for(let i=particles.length-1;i>=0;i--){
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy; p.vx *= 0.99; p.vy *= 0.99; p.vy += 0.08 * timeScale();
+    p.life--;
+    ctx.globalAlpha = Math.max(0, p.life/120);
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,Math.PI*2); ctx.fill();
+    if(p.life<=0) particles.splice(i,1);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ----- Physics calculations ----- */
+function massFromDiameterKm(d_km, density){ // returns kg
+  const r_m = (d_km*1000)/2;
+  const vol = (4/3)*Math.PI*Math.pow(r_m,3);
+  return vol * density;
+}
+function impactFromMassSpeed(m_kg, speed_km_s){
+  const v = speed_km_s * 1000;
+  const E = 0.5 * m_kg * v * v; // Joules
+  const megatons = E / 4.184e15;
+  const craterRadius = 0.07 * Math.pow(E, 0.25);
+  const eqM = (2/3) * Math.log10(Math.max(E,1)) - 3.2;
+  return {E, megatons, craterRadius, eqM};
+}
+
+/* ----- Consequences calculator (realistic-ish / illustrative) ----- */
+function computeConsequences(impact, isOcean){
+  const mt = impact.megatons;
+  const eq = impact.eqM;
+  // environmental severity
+  let env = 'Minor local disturbance';
+  if(mt > 0.05) env = 'Local ecosystem damage & fires';
+  if(mt > 1) env = 'Regional fires, atmospheric dust';
+  if(mt > 50) env = 'Continental-scale ecological collapse';
+  if(mt > 500) env = 'Global climate disruption (major cooling)';
+
+  // tsunami height (very rough)
+  let tsunami = 0;
+  if(isOcean){
+    tsunami = Math.min(200, Math.pow(mt, 1/3) * 20); // meters (illustrative)
+  }
+
+  // destruction level
+  let level = 'Negligible';
+  if(mt > 0.05) level = 'Local';
+  if(mt > 1) level = 'Severe regional';
+  if(mt > 50) level = 'Widespread continental';
+  if(mt > 500) level = 'Civilization-threatening';
+
+  // estimated deaths (simple scaling)
+  const worldPop = 8_000_000_000;
+  // base fraction influenced by mt
+  let frac = 0.0000005 * Math.pow(mt + 0.0001, 0.95);
+  if(mt > 1) frac *= 8;
+  if(mt > 50) frac *= 100;
+  if(isOcean) frac *= 0.6;
+  const deaths = Math.min(worldPop, Math.floor(worldPop * Math.min(0.99, frac)));
+
+  // time until human extinction if systems unrepaired (fictional)
+  let extinctionYears = null;
+  if(level === 'Civilization-threatening'){
+    extinctionYears = Math.floor(50 - Math.log10(mt+1) * 6);
+    if(extinctionYears < 1) extinctionYears = 1;
+  }
+
+  return {
+    environmental: env,
+    earthquakeMag: eq.toFixed(2),
+    tsunamiHeight_m: tsunami ? tsunami.toFixed(1) : '0',
+    destructionLevel: level,
+    estimatedDeaths: deaths.toLocaleString(),
+    extinctionIfNoRepairYears: extinctionYears === null ? 'Not expected' : `${extinctionYears} years (if critical systems fail)`
+  };
+}
+
+/* ----- Game state ----- */
+let game = {
+  running:false,
+  paused:false,
+  score:0,
+  lives:3,
+  sim:{
+    diameter_km: parseFloat(diam.value),
+    density: parseFloat(dens.value),
+    speed_km_s: parseFloat(spd.value),
+    angle_deg: parseFloat(ang.value),
+    mass_kg:0
+  },
+  flightTimeout: null,
+  gravityInterval: null
+};
+
+/* ----- UI updates ----- */
+function updateDerivedUI(){
+  game.sim.diameter_km = parseFloat(diam.value) || 0;
+  game.sim.density = parseFloat(dens.value) || 3000;
+  game.sim.speed_km_s = parseFloat(spd.value) || 0;
+  game.sim.angle_deg = parseFloat(ang.value) || 0;
+  spdVal.textContent = `${game.sim.speed_km_s} km/s`;
+  angVal.textContent = `${game.sim.angle_deg}°`;
+  game.sim.mass_kg = massFromDiameterKm(game.sim.diameter_km, game.sim.density);
+  const mass_tons = game.sim.mass_kg / 1000;
+  massStat.textContent = mass_tons.toLocaleString(undefined,{maximumFractionDigits:2});
+  const impact = impactFromMassSpeed(game.sim.mass_kg, game.sim.speed_km_s);
+  energyStat.textContent = expSig(impact.E,3);
+  mtStat.textContent = impact.megatons.toFixed(3) + ' Mt';
+  craterStat.textContent = impact.craterRadius.toFixed(1) + ' m';
+  magStat.textContent = impact.eqM.toFixed(2);
+  summary.textContent = nameInput.value || 'Asteroid preview';
+  summarySub.textContent = `${(game.sim.diameter_km*1000).toLocaleString()} m • ${(game.sim.mass_kg/1000).toFixed(1)} t • ${game.sim.speed_km_s} km/s`;
+}
+updateDerivedUI();
+
+/* wire input events */
+[diam, dens].forEach(i=>i.addEventListener('input', ()=>updateDerivedUI()));
+spd.addEventListener('input', ()=>updateDerivedUI());
+ang.addEventListener('input', ()=>updateDerivedUI());
+
+/* ----- Time scale control ----- */
+function timeScale(){ return Number(timeScaleInput.value) / 100; }
+timeScaleInput.addEventListener('input', ()=>{
+  const v = timeScale();
+  timeScaleVal.textContent = v.toFixed(2) + '×';
+});
+
+/* ----- Mitigation Animations ----- */
+function animateMitigation(type) {
+  switch(type) {
+    case 'kinetic':
+      asteroidEl.style.transition = "transform 0.5s cubic-bezier(.16,.9,.2,1), opacity 0.6s";
+      asteroidEl.style.transform = "translate(-120px, -80px) rotate(180deg) scale(1.2)";
+      setTimeout(()=>{ asteroidEl.style.transform="translate(0,0) rotate(0deg) scale(1)"; }, 600);
+      break;
+    case 'gravity':
+      asteroidEl.style.transition = "transform 0.8s cubic-bezier(.16,.9,.2,1), box-shadow 0.8s";
+      asteroidEl.style.transform = "scale(1.1) rotate(30deg)";
+      asteroidEl.style.boxShadow = '0 0 24px 8px #87fff0';
+      setTimeout(()=>{
+        asteroidEl.style.transform = "scale(1) rotate(0deg)";
+        asteroidEl.style.boxShadow = '';
+      }, 900);
+      break;
+    case 'laser':
+      asteroidEl.style.transition = "transform 0.7s cubic-bezier(.16,.9,.2,1)";
+      asteroidEl.style.transform = "scale(0.7) rotate(90deg)";
+      setTimeout(()=>{ asteroidEl.style.transform="scale(1) rotate(0deg)"; }, 700);
+      // laser flash overlay
+      let flash = document.createElement('div');
+      flash.style.position = 'absolute';
+      flash.style.left = asteroidEl.offsetLeft+'px';
+      flash.style.top = asteroidEl.offsetTop+'px';
+      flash.style.width = asteroidEl.offsetWidth+'px';
+      flash.style.height = asteroidEl.offsetHeight+'px';
+      flash.style.borderRadius = '50%';
+      flash.style.background = 'radial-gradient(circle,#ffe55c 80%,transparent 100%)';
+      flash.style.opacity = '0.8';
+      flash.style.pointerEvents = 'none';
+      flash.style.zIndex = 20;
+      arena.appendChild(flash);
+      setTimeout(()=>flash.remove(), 350);
+      break;
+    case 'nuke':
+      asteroidEl.style.transition = "opacity 0.6s";
+      asteroidEl.style.opacity = '0';
+      // Fragment visuals
+      for(let i=0;i<5;i++) {
+        let frag = document.createElement('div');
+        frag.style.position = 'absolute';
+        frag.style.left = (asteroidEl.offsetLeft+10+Math.random()*20)+'px';
+        frag.style.top = (asteroidEl.offsetTop+10+Math.random()*10)+'px';
+        frag.style.width = '12px';
+        frag.style.height = '12px';
+        frag.style.borderRadius = '50%';
+        frag.style.background = 'linear-gradient(90deg,#ffd58a,#ff8a4e)';
+        frag.style.zIndex = 999;
+        frag.style.pointerEvents = 'none';
+        arena.appendChild(frag);
+        let dx = (earth.offsetLeft + earth.offsetWidth/2) - (asteroidEl.offsetLeft+20+Math.random()*10);
+        let dy = (earth.offsetTop + earth.offsetHeight/2) - (asteroidEl.offsetTop+20+Math.random()*10);
+        frag.animate([{transform:'translate(0,0)',opacity:1},{transform:`translate(${dx}px,${dy}px)`,opacity:0}],{duration:1200,easing:'cubic-bezier(.16,.9,.2,1)'});
+        setTimeout(()=>frag.remove(),1200);
+      }
+      setTimeout(()=>{ asteroidEl.style.opacity = '1'; }, 1400);
+      break;
+  }
+}
+
+/* ----- Start / Flight animation ----- */
+function startFlight(){
+  if(game.running) return;
+  updateDerivedUI();
+  game.running = true; game.paused = false;
+  statusEl.textContent = 'Launching';
+  statusSub.textContent = 'Asteroid is en route — deploy mitigation!';
+  asteroidEl.style.left = '18px'; asteroidEl.style.top = `${120 + Math.random()*220}px`;
+  asteroidEl.style.opacity = '1'; asteroidEl.style.transform = 'translate(0,0) rotate(0deg) scale(1)';
+  trail.style.left = asteroidEl.style.left; trail.style.top = asteroidEl.style.top;
+  const base = 7000;
+  const tscale = timeScale();
+  const dur = Math.max(600, Math.round((base - (game.sim.speed_km_s * 50)) / tscale));
+  const skyRect = arena.getBoundingClientRect();
+  const dx = (earth.offsetLeft + earth.offsetWidth/2) - (asteroidEl.offsetLeft + asteroidEl.offsetWidth/2);
+  const dy = (earth.offsetTop + earth.offsetHeight/2) - (asteroidEl.offsetTop + asteroidEl.offsetHeight/2);
+  asteroidEl.style.transition = `transform ${dur}ms cubic-bezier(.16,.9,.2,1), opacity 600ms`;
+  asteroidEl.style.transform = `translate(${dx}px, ${dy}px) rotate(${720}deg)`;
+  trail.style.transition = `transform ${dur}ms linear`;
+  trail.style.transform = `translate(${dx}px, ${dy}px)`;
+  // after flight complete -> impact
+  game.flightTimeout = setTimeout(()=> {
+    game.running = false;
+    onImpact();
+  }, dur + 30);
+}
+
+/* ----- Impact handling ----- */
+function onImpact(){
+  const impact = impactFromMassSpeed(game.sim.mass_kg, game.sim.speed_km_s);
+  // explosion center (we use earth center)
+  const skyRect = arena.getBoundingClientRect();
+  const xPct = (earth.offsetLeft + earth.offsetWidth/2) / skyRect.width;
+  const yPct = (earth.offsetTop + earth.offsetHeight/2) / skyRect.height;
+  showExplosionAt(xPct, yPct, impact);
+  // choose random globe coordinate for crater (latitude -60..60, lon -180..180)
+  const lat = (Math.random()*120) - 60;
+  const lon = (Math.random()*360) - 180;
+  placeCraterOnGlobeLatLon(lat, lon, impact);
+  // update game state
+  game.lives = Math.max(0, game.lives - 1);
+  livesEl.textContent = `Lives: ${game.lives}`;
+  scoreEl.textContent = `Score: ${game.score}`;
+  statusEl.textContent = 'Impact!';
+  statusSub.textContent = `${impact.megatons.toFixed(3)} Mt • ${expSig(impact.E,3)} J`;
+  if(game.lives <= 0){
+    openModal('Game Over', `<p>Your planet took too many hits. Final score: <strong>${game.score}</strong></p><p>Reload to play again.</p>`);
+  } else {
+    game.score = Math.max(0, game.score - Math.floor(impact.megatons * 10));
+    scoreEl.textContent = `Score: ${game.score}`;
+  }
+  sfxBoom(Math.min(6, Math.log10(Math.max(impact.E,1))/2));
+  asteroidEl.style.opacity = '0';
+  setTimeout(()=> { asteroidEl.style.transform = 'translate(0,0) rotate(0deg)'; asteroidEl.style.left='18px'; asteroidEl.style.opacity='1'; trail.style.transform='translate(0,0)'; }, 2000);
+}
+
+/* explosion visuals */
+function showExplosionAt(xPct,yPct,impact){
+  const skyRect = arena.getBoundingClientRect();
+  const x = xPct * skyRect.width; const y = yPct * skyRect.height;
+  impactFx.style.left = `${x}px`; impactFx.style.top = `${y}px`;
+  impactFx.classList.remove('explode'); void impactFx.offsetWidth;
+  impactFx.classList.add('explode');
+  spawnParticles(x, y, '#ffb86b', 120 + Math.floor(Math.log10(Math.max(impact.E,1))*50), 12);
+  const ring = document.createElement('div');
+  ring.style.position='absolute'; ring.style.left=`${x}px`; ring.style.top=`${y}px`; ring.style.width='20px'; ring.style.height='20px';
+  ring.style.borderRadius='50%'; ring.style.border='3px solid rgba(255,200,120,0.15)'; ring.style.transform='translate(-50%,-50%) scale(0.2)';
+  ring.style.pointerEvents='none'; ring.style.transition='transform 900ms ease-out, opacity 900ms';
+  arena.appendChild(ring);
+  requestAnimationFrame(()=>{ ring.style.transform='translate(-50%,-50%) scale(5)'; ring.style.opacity='0'; });
+  setTimeout(()=> ring.remove(), 950);
+}
+
+/* ----- Mitigation methods (per your exact spec) ----- */
+/* Kinetic: immediate −10% speed + +10° angle */
+function applyKinetic(){
+  game.sim.speed_km_s *= 0.90;
+  game.sim.angle_deg += 10;
+  ang.value = game.sim.angle_deg; angVal.textContent = `${ang.value}°`;
+  spd.value = game.sim.speed_km_s; spdVal.textContent = `${spd.value} km/s`;
+  sfxBeep(900,0.08);
+  animateMitigation('kinetic');
+  statusEl.textContent = 'Kinetic Impactor';
+  statusSub.textContent = '−10% speed, +10° angle (instant).';
+  updateDerivedUI();
+}
+
+/* Gravity: −15% speed over 5s (gradual) */
+function applyGravity(){
+  if(game.gravityInterval) return; // already applying
+  const totalMs = 5000;
+  const steps = 50;
+  const stepMs = totalMs / steps;
+  const factorPerStep = Math.pow(0.85, 1/steps); // overall *0.85 (-15%)
+  let step = 0;
+  statusEl.textContent = 'Gravity Tractor';
+  statusSub.textContent = 'Reducing speed over 5s...';
+  game.gravityInterval = setInterval(()=>{
+    game.sim.speed_km_s *= factorPerStep;
+    spd.value = game.sim.speed_km_s; spdVal.textContent = `${spd.value.toFixed(2)} km/s`;
+    step++;
+    if(step >= steps){
+      clearInterval(game.gravityInterval); game.gravityInterval = null;
+      statusSub.textContent = 'Gravity tractor completed.';
+    }
+    updateDerivedUI();
+  }, stepMs / timeScale());
+  sfxBeep(700,0.06);
+  animateMitigation('gravity');
+}
+
+/* Laser: −20% mass instantly */
+function applyLaser(){
+  game.sim.mass_kg *= 0.80;
+  sfxBeep(1200,0.05);
+  animateMitigation('laser');
+  statusEl.textContent = 'Laser Ablation';
+  statusSub.textContent = 'Mass reduced by 20% (instant).';
+  updateDerivedUI();
+}
+
+/* Nuke: reduce mass by 60% and create fragments visual */
+function applyNuke(){
+  // fragmentation visuals
+  sfxBoom(4);
+  animateMitigation('nuke');
+  // actual mass reduction
+  game.sim.mass_kg *= 0.40; // -60%
+  massStat.textContent = (game.sim.mass_kg/1000).toLocaleString(undefined,{maximumFractionDigits:2});
+  statusEl.textContent = 'Nuclear Breakup';
+  statusSub.textContent = 'Mass reduced by 60% — fragmentation visualized.';
+  updateDerivedUI();
+}
+
+/* wire mitigation buttons (below arena) */
+kineticBtn.addEventListener('click', ()=>{ applyKinetic(); });
+gravityBtn.addEventListener('click', ()=>{ applyGravity(); });
+laserBtn.addEventListener('click', ()=>{ applyLaser(); });
+nukeBtn.addEventListener('click', ()=>{ applyNuke(); });
+
+/* ----- Pause / Reset ----- */
+pauseBtn.addEventListener('click', ()=>{ if(game.running){ clearTimeout(game.flightTimeout); game.running=false; game.paused=true; statusEl.textContent='Paused'; statusSub.textContent='Resume to continue'; } else if(game.paused){ startFlight(); }});
+resetBtn.addEventListener('click', ()=>{ clearTimeout(game.flightTimeout); if(game.gravityInterval) { clearInterval(game.gravityInterval); game.gravityInterval = null; } game.running=false; game.paused=false; asteroidEl.style.transition=''; asteroidEl.style.transform='translate(0,0)'; asteroidEl.style.left='18px'; asteroidEl.style.opacity='1'; trail.style.transform='translate(0,0)'; game.score=0; game.lives=3; scoreEl.textContent='Score: 0'; livesEl.textContent='Lives: 3'; statusEl.textContent='Reset'; statusSub.textContent='Simulation reset.'; updateDerivedUI(); });
+
+startBtn.addEventListener('click', ()=>{ updateDerivedUI(); startFlight(); });
+
+/* ----- Globe: fake continents + 3D orthographic rendering ----- */
+let globe = {
+  canvas: globeCanvas,
+  ctx: globeCanvas.getContext('2d'),
+  mask: maskCanvas,
+  maskCtx: maskCanvas.getContext('2d'),
+  rotationDeg: 0,
+  dragging: false,
+  lastX:0,
+  lastY:0
+};
+
+// fake continents defined in lat/lon (degrees) — small number of polygons
+// polygons are arrays of [lat, lon]
+const continents = [
+  // big continent A
+  [[20,-40],[25,-10],[10,10],[0,20],[-10,5],[-15,-20],[0,-50],[12,-60]],
+  // continent B
+  [[10,100],[20,120],[8,150],[0,140],[-8,130],[-5,110],[4,105]],
+  // continent C (southern)
+  [[-30,-140],[-20,-120],[-35,-100],[-50,-125],[-45,-150]],
+  // islands
+  [[30,60],[28,68],[25,72],[23,64],[27,58]],
+  [[-5,30],[-2,38],[-8,42],[-10,28]]
+];
+
+function resizeGlobe(){
+  const cssW = globe.canvas.clientWidth;
+  const cssH = globe.canvas.clientHeight;
+  globe.canvas.width = cssW * devRatio;
+  globe.canvas.height = cssH * devRatio;
+  globe.ctx.setTransform(devRatio,0,0,devRatio,0,0);
+  globe.mask.width = cssW * devRatio;
+  globe.mask.height = cssH * devRatio;
+  globe.maskCtx.setTransform(devRatio,0,0,devRatio,0,0);
+  drawGlobe();
+}
+window.addEventListener('resize', resizeGlobe);
+
+function drawGlobe(){
+  const c = globe.canvas, g = globe.ctx;
+  const m = globe.mask, mg = globe.maskCtx;
+  const w = c.clientWidth, h = c.clientHeight;
+  const cx = w/2, cy = h/2, r = Math.min(w,h)/2 - 6;
+  g.clearRect(0,0,w,h);
+  // ocean shading
+  const oceanGrad = g.createRadialGradient(cx - r*0.2, cy - r*0.2, r*0.1, cx, cy, r);
+  oceanGrad.addColorStop(0, '#2aa8d6'); oceanGrad.addColorStop(1, '#0a5c84');
+  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI*2); g.fillStyle = oceanGrad; g.fill();
+  g.save();
+  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI*2); g.clip();
+
+  // draw continents with spherical projection (orthographic)
+  const rot = deg2rad(globe.rotationDeg);
+  continents.forEach(poly => {
+    g.beginPath();
+    mg.beginPath();
+    let first = true;
+    poly.forEach(([lat, lon], idx) => {
+      const latR = deg2rad(lat);
+      const lonR = deg2rad(lon) + rot;
+      const x = cx + r * Math.cos(latR) * Math.sin(lonR);
+      const y = cy + r * Math.sin(latR);
+      if(first){ g.moveTo(x,y); mg.moveTo(x,y); first=false; } else { g.lineTo(x,y); mg.lineTo(x,y); }
+    });
+    g.closePath(); g.fillStyle = '#2f9d55'; g.fill();
+    mg.closePath(); mg.fillStyle = '#00ff00'; mg.fill(); // pure green on mask
+  });
+
+  // shading and rim
+  g.restore();
+  // light & shading
+  const shade = g.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+  shade.addColorStop(0, 'rgba(255,255,255,0.03)');
+  shade.addColorStop(1, 'rgba(0,0,0,0.15)');
+  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI*2); g.fillStyle = shade; g.fill();
+  // rim
+  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI*2); g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,0.25)'; g.stroke();
+  // clear craters when globe is redrawn
+  craterOverlay.innerHTML = '';
+}
+
+function animateGlobe(){
+  if(!globe.dragging){
+    globe.rotationDeg += 0.03 * timeScale(); // slow auto-rotation influenced by timescale
+    if(globe.rotationDeg > 360) globe.rotationDeg -= 360;
+    drawGlobe();
+  }
+  requestAnimationFrame(animateGlobe);
+}
+
+// convert canvas coords -> lat/lon if visible on near hemisphere (orthographic inverse)
+function canvasXYToLatLon(cx, cy, x, y){
+  const w = globe.canvas.clientWidth, h = globe.canvas.clientHeight;
+  const r = Math.min(w,h)/2 - 6;
+  const cxC = w/2, cyC = h/2;
+  const dx = x - cxC, dy = y - cyC;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  if(dist > r) return null; // outside globe
+  const lat = Math.asin(dy / r); // φ
+  // compute z for hemisphere test
+  const z = Math.sqrt(Math.max(0, r*r - dx*dx - dy*dy));
+  const lambda = Math.atan2(dx, z); // relative longitude
+  const lon = rad2deg(lambda) - globe.rotationDeg; // adjust for rotation
+  return { lat: rad2deg(lat), lon: ((lon+540)%360)-180 }; // normalized lon -180..180
+}
+
+// check mask pixel (fast) to see if clicked on land
+function isMaskLandAt(clientX, clientY){
+  const rect = globe.canvas.getBoundingClientRect();
+  const x = (clientX - rect.left) * devRatio;
+  const y = (clientY - rect.top) * devRatio;
+  try{
+    const p = globe.maskCtx.getImageData(x, y, 1, 1).data;
+    // mask land uses green channel high
+    return p[1] > 100;
+  }catch(e){ return false; }
+}
+
+/* Globe Impact Animation — asteroid falls onto globe and makes crater */
+globe.canvas.addEventListener('click', (ev)=>{
+  const rect = globe.canvas.getBoundingClientRect();
+  const cx = ev.clientX - rect.left, cy = ev.clientY - rect.top;
+  // Compute impact data
+  const impact = impactFromMassSpeed(game.sim.mass_kg, game.sim.speed_km_s);
+
+  // Animate falling asteroid
+  const asteroidDiv = document.createElement('div');
+  asteroidDiv.style.position = 'absolute';
+  asteroidDiv.style.left = cx+'px';
+  asteroidDiv.style.top = '-32px';
+  asteroidDiv.style.width = '32px';
+  asteroidDiv.style.height = '32px';
+  asteroidDiv.style.borderRadius = '50%';
+  asteroidDiv.style.background = 'linear-gradient(135deg,#bdbdbd,#8b8b8b)';
+  asteroidDiv.style.boxShadow = '0 8px 20px rgba(0,0,0,0.6)';
+  asteroidDiv.style.zIndex = 15;
+  asteroidDiv.style.pointerEvents = 'none';
+  asteroidDiv.style.transition = 'top 0.7s cubic-bezier(.16,.9,.2,1), opacity 0.5s';
+  asteroidDiv.style.opacity = '1';
+  asteroidDiv.className = 'fallingAsteroid';
+
+  fallingAsteroids.appendChild(asteroidDiv);
+
+  // Animate to impact on globe
+  setTimeout(()=>{
+    asteroidDiv.style.top = (cy-16)+'px';
+  },10);
+
+  // After impact, remove asteroid and create crater
+  setTimeout(()=>{
+    asteroidDiv.style.opacity = '0';
+    setTimeout(()=>{ if(asteroidDiv.parentNode) asteroidDiv.parentNode.removeChild(asteroidDiv); }, 500);
+
+    // Create crater overlay (size scaled to impact)
+    const crater = document.createElement('div');
+    crater.className = 'crater';
+    crater.style.left = cx+'px';
+    crater.style.top = cy+'px';
+    // crater size: scale radius to px, but clamp to reasonable visual minimum/maximum
+    let pxR = Math.max(10, Math.min(90, impact.craterRadius * 0.04));
+    crater.style.width = pxR*2 + 'px';
+    crater.style.height = pxR*2 + 'px';
+    crater.style.background = 'radial-gradient(circle at 55% 60%, #682d1a 60%, #170000 100%)';
+    crater.style.opacity = '0.88';
+    crater.style.zIndex = '10';
+    crater.style.position = 'absolute';
+    crater.style.transition = 'opacity 4s linear';
+    craterOverlay.appendChild(crater);
+
+    // Fade crater slowly
+    setTimeout(()=>{ crater.style.opacity = '0'; }, 4000);
+    setTimeout(()=>{ if(crater.parentNode) crater.parentNode.removeChild(crater); }, 5600);
+
+    // Consequences
+    const isLand = isMaskLandAt(ev.clientX, ev.clientY);
+    const cons = computeConsequences(impact, !isLand);
+    conseqBox.innerHTML = `
+      <div style="padding:6px 0"><strong>${nameInput.value || 'Asteroid'}</strong> — ${game.sim.diameter_km} km</div>
+      <div style="display:flex;justify-content:space-between"><div>Energy</div><div>${expSig(impact.E,3)} J</div></div>
+      <div style="display:flex;justify-content:space-between"><div>Megatons</div><div>${impact.megatons.toFixed(3)} Mt</div></div>
+      <div style="display:flex;justify-content:space-between"><div>Seismic est.</div><div>${cons.earthquakeMag} M</div></div>
+      <div style="display:flex;justify-content:space-between"><div>Environment</div><div>${cons.environmental}</div></div>
+      <div style="display:flex;justify-content:space-between"><div>Tsunami</div><div>${cons.tsunamiHeight_m} m</div></div>
+      <div style="display:flex;justify-content:space-between"><div>Deaths est.</div><div>${cons.estimatedDeaths}</div></div>
+      <div style="display:flex;justify-content:space-between"><div>Extinction(if unrepaired)</div><div>${cons.extinctionIfNoRepairYears}</div></div>
+    `;
+    statusEl.textContent='Map Impact';
+    statusSub.textContent=`${impact.megatons.toFixed(3)} Mt • ${isLand ? 'Land' : 'Ocean'}`;
+    sfxBeep(300,0.08);
+  }, 760);
+});
+
+clearMap.addEventListener('click', ()=>{
+  drawGlobe();
+  craterOverlay.innerHTML = '';
+  fallingAsteroids.innerHTML = '';
+  conseqBox.innerHTML = 'No impacts yet.';
+});
+
+/* Draw crater on globe at lat/lon — for random impacts (from game) */
+function placeCraterOnGlobeLatLon(lat, lon, impact){
+  // Project lat/lon on globe
+  const w = globe.canvas.clientWidth, h = globe.canvas.clientHeight;
+  const cx = w/2, cy = h/2, r = Math.min(w,h)/2 - 6;
+  const rot = deg2rad(globe.rotationDeg);
+  const latR = deg2rad(lat);
+  const lonR = deg2rad(lon) + rot;
+  const x = cx + r * Math.cos(latR) * Math.sin(lonR);
+  const y = cy + r * Math.sin(latR);
+
+  // Only place crater if on visible hemisphere
+  if (Math.abs(x-cx) < r && Math.abs(y-cy) < r) {
+    // crater size: scale radius to px, but clamp to reasonable visual minimum/maximum
+    let pxR = Math.max(12, Math.min(90, impact.craterRadius * 0.04));
+    const crater = document.createElement('div');
+    crater.className = 'crater';
+    crater.style.left = x+'px';
+    crater.style.top = y+'px';
+    crater.style.width = pxR*2 + 'px';
+    crater.style.height = pxR*2 + 'px';
+    crater.style.background = 'radial-gradient(circle at 55% 60%, #682d1a 60%, #170000 100%)';
+    crater.style.opacity = '0.88';
+    crater.style.zIndex = '10';
+    crater.style.position = 'absolute';
+    crater.style.transition = 'opacity 4s linear';
+    craterOverlay.appendChild(crater);
+    setTimeout(()=>{ crater.style.opacity = '0'; }, 4000);
+    setTimeout(()=>{ if(crater.parentNode) crater.parentNode.removeChild(crater); }, 5600);
+  }
+}
+
+/* start globe */
+resizeGlobe();
+requestAnimationFrame(animateGlobe);
+
+/* ----- NASA NEO fetching & selector ----- */
+let neoDataMap = {};
+async function loadNeos50(){
+  asteroidSelect.innerHTML = '<option>Loading…</option>';
+  neoDataMap = {};
+  const API_KEY = 'DEMO_KEY'; // replace with your key
+  const target = 50;
+  let collected = [];
+  let page = 0;
+  try{
+    while(collected.length < target){
+      const size = Math.min(20, target - collected.length);
+      const res = await fetch(`https://api.nasa.gov/neo/rest/v1/neo/browse?page=${page}&size=${size}&api_key=${API_KEY}`);
+      if(!res.ok) throw new Error('fetch failed');
+      const data = await res.json();
+      if(!data || !data.near_earth_objects) break;
+      collected = collected.concat(data.near_earth_objects);
+      // page increment
+      page++;
+      if(!data.page || page > 10) break;
+    }
+  }catch(e){
+    alert('Load failed — replace DEMO_KEY with your NASA API key or check CORS. You can still enter values manually.');
+  }
+  if(collected.length === 0){
+    asteroidSelect.innerHTML = '<option value="">— none —</option>';
+    return;
+  }
+  asteroidSelect.innerHTML = '<option value="">— choose asteroid —</option>';
+  collected.slice(0,50).forEach((o, i) => {
+    const id = o.id || o.neo_reference_id || `i${i}`;
+    neoDataMap[id] = o;
+    const name = o.name || `NEO ${id}`;
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = `${name} ${o.absolute_magnitude_h ? ` (H ${o.absolute_magnitude_h})` : ''}`;
+    asteroidSelect.appendChild(opt);
+  });
+}
+load50Btn.addEventListener('click', ()=>{ loadNeos50(); });
+
+asteroidSelect.addEventListener('change', ()=>{
+  const id = asteroidSelect.value;
+  if(!id){ nameInput.value=''; return; }
+  const o = neoDataMap[id];
+  if(!o) return;
+  nameInput.value = o.name || id;
+  let diam_km = null;
+  if(o.estimated_diameter && o.estimated_diameter.kilometers){
+    const k = o.estimated_diameter.kilometers;
+    diam_km = ((k.estimated_diameter_min||0)+(k.estimated_diameter_max||0))/2;
+  }
+  if(diam_km) diam.value = diam_km;
+  if(o.close_approach_data && o.close_approach_data.length){
+    const v = o.close_approach_data[0].relative_velocity.kilometers_per_second;
+    if(v) spd.value = parseFloat(v);
+  }
+  // density heuristic
+  dens.value = 3000;
+  updateDerivedUI();
+});
+
+/* ----- Modal/help ----- */
+$('helpBtn').addEventListener('click', ()=> openModal('How to play', `<p>Load NEOs, choose an asteroid or enter your own values. Use Start to launch the asteroid. Apply mitigations below the arena before impact for best effect.</p><p>SOS (top-right) plays a siren and slows time for 6s. Speed slider (top-center) adjusts simulation time-scale (0.5×–3×).</p>`));
+function openModal(title, html){
+  modalRoot.innerHTML = `<div class="modalBack"><div class="modal"><div style="position:relative"><h3>${title}</h3><div class="close" id="modalClose">✕</div></div><div style="margin-top:8px;">${html}</div></div></div>`;
+  modalRoot.style.display='block'; $('modalClose').addEventListener('click', ()=>{ modalRoot.style.display='none'; modalRoot.innerHTML=''; });
+}
+
+/* ----- SOS button ----- */
+sosBtn.addEventListener('click', ()=>{
+  // play siren and slow time
+  playSiren(6000);
+  const prev = Number(timeScaleInput.value);
+  // reduce timescale by 50%
+  timeScaleInput.value = Math.round(prev * 0.5);
+  timeScaleVal.textContent = (timeScale()).toFixed(2)+'×';
+  openModal('GLOBAL SOS ALERT', '<p>Global alert — systems must respond. Time slowed for 6 seconds.</p>');
+  setTimeout(()=>{
+    timeScaleInput.value = prev;
+    timeScaleVal.textContent = (timeScale()).toFixed(2)+'×';
+  }, 6000);
+});
+
+/* ----- Particles loop ----- */
+function loop(){
+  updateParticles();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ----- Keyboard controls ----- */
+window.addEventListener('keydown', (e)=>{
+  if(e.key === 'ArrowUp'){ ang.value = parseFloat(ang.value) + 1; updateDerivedUI(); e.preventDefault(); }
+  if(e.key === 'ArrowDown'){ ang.value = parseFloat(ang.value) - 1; updateDerivedUI(); e.preventDefault(); }
+  if(e.key === ' '){ if(game.running){ clearTimeout(game.flightTimeout); game.running=false; statusEl.textContent='Paused'; } else { startFlight(); } e.preventDefault(); }
+});
+
+/* initial UI */
+updateDerivedUI();
+scoreEl.textContent = `Score: ${game.score}`; livesEl.textContent = `Lives: ${game.lives}`;
+timeScaleVal.textContent = timeScale().toFixed(2) + '×';
+
+/* expose manual functions */
+window.applyKinetic = ()=>{ applyKinetic(); };
+window.applyGravity = ()=>{ applyGravity(); };
+window.applyLaser = ()=>{ applyLaser(); };
+window.applyNuke = ()=>{ applyNuke(); };
+
+</script>
+</body>
+</html>
